@@ -1,0 +1,2059 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>立方体展開図シミュレーター</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Three.js & OrbitControls -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+    
+    * {
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      touch-action: none;
+    }
+
+    body {
+      background: #ffffff;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+      overflow: hidden;
+    }
+
+    #app-container {
+      width: 100vw;
+      height: 56.25vw;
+      max-width: 177.78vh;
+      max-height: 100vh;
+      position: relative;
+      background: #ffffff;
+      overflow: hidden;
+    }
+
+    #canvas-container {
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+
+    .glass-panel {
+      background: rgba(255, 255, 255, 0.94);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(226, 232, 240, 0.9);
+    }
+
+    .btn-action {
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .btn-action:hover:not(:disabled) {
+      transform: translateY(-1px);
+    }
+
+    .btn-action:active:not(:disabled) {
+      transform: translateY(1px);
+    }
+
+    /* フローティング・移動可能・リサイズ可能ウィンドウ */
+    .floating-window {
+      display: none;
+      position: absolute;
+      top: 60px;
+      right: 20px;
+      width: 380px;
+      height: 480px;
+      min-width: 280px;
+      min-height: 320px;
+      background: #ffffff;
+      z-index: 90;
+      border-radius: 1.25rem;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+      border: 1px solid #e2e8f0;
+      flex-direction: column;
+      overflow: hidden;
+      touch-action: none;
+    }
+
+    .floating-window.open {
+      display: flex;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 4px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: #f1f5f9;
+      border-radius: 4px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 4px;
+    }
+
+    /* 花丸アニメーション */
+    @keyframes flowerPopIn {
+      0% {
+        transform: scale(0);
+        opacity: 0;
+      }
+      100% {
+        transform: scale(1);
+        opacity: 1;
+      }
+    }
+
+    .flower-svg {
+      transform-origin: center;
+      user-select: none;
+      touch-action: manipulation;
+    }
+  </style>
+</head>
+<body>
+
+<div id="app-container" class="relative overflow-hidden">
+  <!-- 3D Canvas Area -->
+  <div id="canvas-container"></div>
+
+  <!-- 上部コントロールエリア (左・中央・右) -->
+  <div class="absolute top-3 left-3 right-3 z-10 flex flex-wrap items-start justify-between gap-2 pointer-events-none">
+    
+    <!-- 左側：各種モード・編集操作ボタン -->
+    <div class="flex flex-col gap-1.5 pointer-events-auto">
+      <div class="glass-panel p-1.5 rounded-2xl shadow-md flex items-center gap-1">
+        <button id="mode-move" class="mode-btn btn-action text-xs font-semibold px-2.5 py-1.5 rounded-xl transition-colors bg-blue-600 text-white shadow-sm">
+          正方形を動かす
+        </button>
+        <button id="mode-center" class="mode-btn btn-action text-xs font-semibold px-2.5 py-1.5 rounded-xl transition-colors text-slate-600 hover:bg-slate-200/70">
+          中心面
+        </button>
+        <button id="mode-face" class="mode-btn btn-action text-xs font-semibold px-2.5 py-1.5 rounded-xl transition-colors text-slate-600 hover:bg-slate-200/70">
+          面
+        </button>
+        <button id="mode-edge" class="mode-btn btn-action text-xs font-semibold px-2.5 py-1.5 rounded-xl transition-colors text-slate-600 hover:bg-slate-200/70">
+          辺
+        </button>
+        <button id="mode-vertex" class="mode-btn btn-action text-xs font-semibold px-2.5 py-1.5 rounded-xl transition-colors text-slate-600 hover:bg-slate-200/70">
+          頂点
+        </button>
+        <button id="mode-symbol" class="mode-btn btn-action text-xs font-semibold px-2.5 py-1.5 rounded-xl transition-colors text-slate-600 hover:bg-slate-200/70">
+          記号
+        </button>
+        
+        <div class="w-px h-4 bg-slate-300 mx-0.5"></div>
+
+        <button id="btn-bottom-reset" class="btn-action text-xs font-semibold px-2.5 py-1.5 rounded-xl text-rose-600 hover:bg-rose-100 border border-rose-200/60">
+          クリア
+        </button>
+      </div>
+
+      <!-- カラーパレット (面/辺/頂点用) -->
+      <div id="color-palette" class="hidden items-center gap-1.5 glass-panel px-2.5 py-1.5 rounded-xl shadow-md self-start">
+        <button class="color-btn w-6 h-6 rounded-full border-2 border-white shadow-sm transition-transform scale-110 ring-2 ring-slate-800" style="background-color: #ef4444;" data-color="#ef4444"></button>
+        <button class="color-btn w-6 h-6 rounded-full border-2 border-white shadow-sm transition-transform hover:scale-105" style="background-color: #3b82f6;" data-color="#3b82f6"></button>
+        <button class="color-btn w-6 h-6 rounded-full border-2 border-white shadow-sm transition-transform hover:scale-105" style="background-color: #10b981;" data-color="#10b981"></button>
+        <button class="color-btn w-6 h-6 rounded-full border-2 border-white shadow-sm transition-transform hover:scale-105" style="background-color: #FFC000;" data-color="#FFC000"></button>
+        <button class="color-btn w-6 h-6 rounded-full border-2 border-white shadow-sm transition-transform hover:scale-105" style="background-color: #9933FF;" data-color="#9933FF"></button>
+      </div>
+
+      <!-- 記号パレット -->
+      <div id="symbol-palette" class="hidden items-center gap-1 glass-panel p-1 rounded-xl shadow-md overflow-x-auto max-w-[420px] self-start">
+        <button class="symbol-btn btn-action text-xs font-bold w-7 h-7 rounded-lg bg-slate-200 text-slate-900 ring-2 ring-slate-400 flex items-center justify-center" data-symbol="A">A</button>
+        <button class="symbol-btn btn-action text-xs font-bold w-7 h-7 rounded-lg bg-white text-slate-700 hover:bg-slate-200 flex items-center justify-center border border-slate-200" data-symbol="B">B</button>
+        <button class="symbol-btn btn-action text-xs font-bold w-7 h-7 rounded-lg bg-white text-slate-700 hover:bg-slate-200 flex items-center justify-center border border-slate-200" data-symbol="C">C</button>
+        <button class="symbol-btn btn-action text-xs font-bold w-7 h-7 rounded-lg bg-white text-slate-700 hover:bg-slate-200 flex items-center justify-center border border-slate-200" data-symbol="D">D</button>
+        <button class="symbol-btn btn-action text-xs font-bold w-7 h-7 rounded-lg bg-white text-slate-700 hover:bg-slate-200 flex items-center justify-center border border-slate-200" data-symbol="E">E</button>
+        <button class="symbol-btn btn-action text-xs font-bold w-7 h-7 rounded-lg bg-white text-slate-700 hover:bg-slate-200 flex items-center justify-center border border-slate-200" data-symbol="F">F</button>
+        <button class="symbol-btn btn-action text-xs font-bold w-7 h-7 rounded-lg bg-white text-slate-700 hover:bg-slate-200 flex items-center justify-center border border-slate-200" data-symbol="●">●</button>
+        <button class="symbol-btn btn-action text-xs font-bold w-7 h-7 rounded-lg bg-white text-slate-700 hover:bg-slate-200 flex items-center justify-center border border-slate-200" data-symbol="▲">▲</button>
+        <button class="symbol-btn btn-action text-xs font-bold w-7 h-7 rounded-lg bg-white text-slate-700 hover:bg-slate-200 flex items-center justify-center border border-slate-200" data-symbol="◆">◆</button>
+        <button class="symbol-btn btn-action text-xs font-bold w-7 h-7 rounded-lg bg-white text-slate-700 hover:bg-slate-200 flex items-center justify-center border border-slate-200" data-symbol="★">★</button>
+        <button class="symbol-btn btn-action text-xs font-bold w-7 h-7 rounded-lg bg-white text-slate-700 hover:bg-slate-200 flex items-center justify-center border border-slate-200" data-symbol="♥">♥</button>
+        <button class="symbol-btn btn-action text-xs font-bold w-7 h-7 rounded-lg bg-white text-slate-700 hover:bg-slate-200 flex items-center justify-center border border-slate-200" data-symbol="♣">♣</button>
+        <button class="symbol-btn btn-action text-[10px] font-semibold px-2 h-7 rounded-lg bg-rose-100 text-rose-600 hover:bg-rose-200 flex items-center justify-center border border-rose-200" data-symbol="">消す</button>
+      </div>
+    </div>
+
+    <!-- 中央：折方向・面を透過・配置リセット -->
+    <div class="pointer-events-auto flex items-center gap-1.5">
+      <div class="glass-panel p-1.5 rounded-2xl shadow-md flex items-center gap-1.5">
+        <button id="btn-direction" class="btn-action bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs px-3 py-2 rounded-xl border border-slate-200 flex items-center gap-1.5">
+          <span>折方向</span>
+          <svg class="w-4 h-4 stroke-slate-700 fill-none" viewBox="0 0 24 24" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M7 16V4M7 4L3 8M7 4L11 8" />
+            <path d="M17 8V20M17 20L21 16M17 20L13 16" />
+          </svg>
+        </button>
+
+        <button id="btn-transparent" class="btn-action bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs px-3 py-2 rounded-xl border border-slate-200">
+          面を透過
+        </button>
+
+        <button id="btn-reset" class="btn-action bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs px-3 py-2 rounded-xl border border-slate-200">
+          配置リセット
+        </button>
+      </div>
+    </div>
+
+    <!-- 右側：できた展開図・カメラ -->
+    <div class="pointer-events-auto flex items-center gap-1.5">
+      <div class="glass-panel p-1.5 rounded-2xl shadow-md flex items-center gap-1.5">
+        <button id="btn-collection" class="btn-action bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-3.5 py-2 rounded-xl shadow-sm">
+          できた展開図
+        </button>
+
+        <button id="btn-screenshot" title="スクリーンショット保存" class="btn-action bg-pink-50 hover:bg-pink-100 text-pink-600 p-2 rounded-xl flex items-center justify-center border border-pink-200 w-9 h-9">
+          <svg class="w-5 h-5 fill-pink-500" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 15.25C13.7949 15.25 15.25 13.7949 15.25 12C15.25 10.2051 13.7949 8.75 12 8.75C10.2051 8.75 8.75 10.2051 8.75 12C8.75 13.7949 10.2051 15.25 12 15.25Z" />
+            <path d="M9 3L7.17 5H4C2.9 5 2 5.9 2 7V19C2 20.1 2.9 21 4 21H20C21.1 21 22 20.1 22 19V7C22 5.9 21.1 5 20 5H16.83L15 3H9ZM12 17C9.24 17 7 14.76 7 12C7 9.24 9.24 7 12 7C14.76 7 17 9.24 17 12C17 14.76 14.76 17 12 17Z" />
+          </svg>
+        </button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 画面下中央：最初から並ぶ3つのアクションボタン（組み立てる・回転・左右反転） -->
+  <div class="absolute bottom-5 left-1/2 -translate-x-1/2 z-10 flex items-center justify-center gap-2.5">
+    <!-- 「組み立てる / 展開図にもどす」ボタン -->
+    <button id="btn-animate" disabled class="btn-action bg-slate-300 text-slate-500 cursor-not-allowed font-bold text-base px-7 py-3 rounded-2xl shadow-lg border-2 border-white/80 flex items-center justify-center min-w-[170px]">
+      <span id="text-animate">組み立てる</span>
+    </button>
+
+    <!-- 回転ボタン（右回転固定） -->
+    <button id="btn-rotate-net" disabled class="btn-action bg-slate-300 text-slate-500 cursor-not-allowed font-bold p-3 rounded-2xl shadow-lg border-2 border-white/80 flex items-center justify-center" title="展開図を90度右回転">
+      <svg id="icon-rotate-net" class="w-6 h-6 stroke-current fill-none" viewBox="0 0 24 24" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/>
+        <path d="M21 3v5h-5"/>
+      </svg>
+    </button>
+
+    <!-- 左右反転ボタン -->
+    <button id="btn-mirror-net" disabled class="btn-action bg-slate-300 text-slate-500 cursor-not-allowed font-bold p-3 rounded-2xl shadow-lg border-2 border-white/80 flex items-center justify-center" title="展開図を左右反転">
+      <svg class="w-6 h-6 stroke-current fill-none" viewBox="0 0 24 24" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M8 7L3 12L8 17"/>
+        <path d="M16 7L21 12L16 17"/>
+        <path d="M12 4V20" stroke-dasharray="2 2"/>
+      </svg>
+    </button>
+  </div>
+
+  <!-- 移動・縮小（リサイズ）が可能な「できた展開図」ウィンドウ -->
+  <div id="collectionModal" class="floating-window">
+    <!-- ヘッダー (ドラッグ移動領域) -->
+    <div id="collectionHeader" class="flex items-center justify-between p-3.5 bg-slate-50 border-b border-slate-200 cursor-move rounded-t-2xl select-none">
+      <div class="flex items-center gap-2">
+        <svg class="w-4 h-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 9h8M8 15h8"/></svg>
+        <h2 class="text-sm font-bold text-slate-800">できた展開図</h2>
+        <button id="btn-reset-collection" class="btn-action text-[11px] font-semibold px-2 py-0.5 rounded bg-slate-200 text-slate-600 hover:bg-slate-300 border border-slate-300">
+          記録をリセット
+        </button>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <button id="btn-screenshot-collection" title="できた展開図をスクショ保存" class="btn-action bg-blue-500 hover:bg-blue-600 active:bg-blue-700 text-white p-1.5 rounded-lg flex items-center justify-center shadow-sm w-7 h-7">
+          <svg class="w-4 h-4 fill-current" viewBox="0 0 24 24">
+            <path d="M12 15.25C13.7949 15.25 15.25 13.7949 15.25 12C15.25 10.2051 13.7949 8.75 12 8.75C10.2051 8.75 8.75 10.2051 8.75 12C8.75 13.7949 10.2051 15.25 12 15.25Z" />
+            <path d="M9 3L7.17 5H4C2.9 5 2 5.9 2 7V19C2 20.1 2.9 21 4 21H20C21.1 21 22 20.1 22 19V7C22 5.9 21.1 5 20 5H16.83L15 3H9ZM12 17C9.24 17 7 14.76 7 12C7 9.24 9.24 7 12 7C14.76 7 17 9.24 17 12C17 14.76 14.76 17 12 17Z" />
+          </svg>
+        </button>
+        <button id="closeModal" class="text-pink-500 hover:text-pink-700 hover:bg-pink-100 text-xl font-bold w-7 h-7 rounded-full flex items-center justify-center transition-colors">&times;</button>
+      </div>
+    </div>
+    
+    <!-- グリッド表示エリア -->
+    <div id="collectionGrid" class="grid grid-cols-3 gap-2 p-2.5 overflow-y-auto custom-scrollbar flex-1 items-start">
+      <!-- JSで動的生成 -->
+    </div>
+
+    <!-- 右下リサイズハンドル -->
+    <div id="collectionResizeHandle" class="absolute bottom-0 right-0 w-5 h-5 cursor-se-resize flex items-center justify-center text-slate-400 select-none">
+      <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M22 22H20V20H22V22ZM22 18H18V20H22V18ZM18 22H16V24H18V22ZM22 14H14V16H22V14Z"/></svg>
+    </div>
+  </div>
+</div>
+
+<script>
+// 11種類の正解展開図データ
+const STANDARD_NETS = [
+  // 1-4-1 (6種類)
+  [[1,0,0,0],[1,1,1,1],[1,0,0,0]],
+  [[1,0,0,0],[1,1,1,1],[0,1,0,0]],
+  [[1,0,0,0],[1,1,1,1],[0,0,1,0]],
+  [[1,0,0,0],[1,1,1,1],[0,0,0,1]],
+  [[0,1,0,0],[1,1,1,1],[0,1,0,0]],
+  [[0,1,0,0],[1,1,1,1],[0,0,1,0]],
+  // 2-3-1 (3種類)
+  [[1,1,0,0],[0,1,1,1],[0,1,0,0]],
+  [[1,1,0,0],[0,1,1,1],[0,0,1,0]],
+  [[1,1,0,0],[0,1,1,1],[0,0,0,1]],
+  // 2-2-2 (1種類)
+  [[1,1,0,0],[0,1,1,0],[0,0,1,1]],
+  // 3-3 (1種類)
+  [[1,1,1,0,0],[0,0,1,1,1]]
+];
+
+// 展開図の中で最も中心付近にある（他面への距離が近く重心に近い）面のインデックスを自動算出
+function findCentralTileIndex() {
+  if (!tiles || tiles.length === 0) return 0;
+
+  // 1. 全タイルの中心座標の平均（重心）を計算
+  let sumX = 0, sumY = 0;
+  tiles.forEach(t => {
+    sumX += t.gx;
+    sumY += t.gy;
+  });
+  const avgX = sumX / tiles.length;
+  const avgY = sumY / tiles.length;
+
+  let minScore = Infinity;
+  let bestIndex = 0;
+
+  tiles.forEach((t, i) => {
+    // 2. 展開図ネットワーク上の他面への最短ステップ数（ホップ数）の合計を計算
+    let totalDist = 0;
+    const visited = new Map();
+    const queue = [{ idx: i, dist: 0 }];
+    visited.set(i, true);
+
+    while (queue.length > 0) {
+      const { idx, dist } = queue.shift();
+      totalDist += dist;
+      const t1 = tiles[idx];
+
+      tiles.forEach((t2, j) => {
+        if (!visited.has(j)) {
+          const dx = Math.abs(t1.gx - t2.gx);
+          const dy = Math.abs(t1.gy - t2.gy);
+          if ((dx === 1 && dy === 0) || (dx === 0 && dy === 1)) {
+            visited.set(j, true);
+            queue.push({ idx: j, dist: dist + 1 });
+          }
+        }
+      });
+    }
+
+    // 3. 重心からの幾何学的距離
+    const distToCenter = Math.hypot(t.gx - avgX, t.gy - avgY);
+
+    // グラフ距離の総和（最も中央に近い）を優先し、同点の場合は幾何学的重心で判定
+    const score = totalDist * 10 + distToCenter;
+
+    if (score < minScore) {
+      minScore = score;
+      bestIndex = i;
+    }
+  });
+
+  return bestIndex;
+}
+
+// ユーザー指定の中心面があればそれを返し、未指定(-1)の場合は中心付近の面を自動選定
+function getRootTileIndex() {
+  if (centerTileIndex !== -1 && centerTileIndex >= 0 && centerTileIndex < tiles.length) {
+    return centerTileIndex;
+  }
+  return findCentralTileIndex();
+}
+
+const TOP_COLOR_HEX = '#EFFBFF';    // 表面色
+const BOTTOM_COLOR_HEX = '#93D2F5'; // 裏面色
+const BORDER_COLOR_HEX = '#424A4B'; // 周りの辺の色
+
+let scene, camera, renderer, controls;
+let tiles = [];
+let activeMode = 'move'; // 初期設定：正方形を動かす
+let selectedColor = '#ef4444';
+let selectedSymbol = 'A';
+let centerTileIndex = -1;
+let isFolded = false;
+let foldDirection = 1;
+let foldProgress = 0;
+let isAnimating = false;
+let isTransparent = false;
+let unlockedNets = JSON.parse(localStorage.getItem('cube_unlocked_nets') || '[]');
+
+let screenshotCount = 0;
+
+function getParenthesizedNumber(num) {
+  if (num >= 1 && num <= 20) {
+    return String.fromCharCode(0x2473 + num); // ⑴ 〜 ⑳
+  }
+  return `(${num})`;
+}
+
+// アニメーション用変数の追加 (回転/左右反転)
+let isTransformingNet = false;
+let transformAnimProgress = 0;
+let transformAnimData = null;
+
+let preRotationTilesPos = null;
+
+const FRONT_CAMERA_POS = new THREE.Vector3(0, 0.2, 8.5);
+let targetCameraPos = new THREE.Vector3().copy(FRONT_CAMERA_POS);
+let targetControlsTarget = new THREE.Vector3(0, -0.1, 0);
+
+function init() {
+  const container = document.getElementById('canvas-container');
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xffffff);
+
+  camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
+  camera.position.copy(FRONT_CAMERA_POS);
+
+  renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+  renderer.setSize(container.clientWidth, container.clientHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true;
+  container.appendChild(renderer.domElement);
+
+  controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableRotate = false;
+  controls.enablePan = false;
+  controls.enableDamping = false;
+  controls.rotateSpeed = 0.5;
+  controls.target.set(0, -0.1, 0);
+
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.85);
+  scene.add(ambientLight);
+
+  const dirLight = new THREE.DirectionalLight(0xffffff, 0.35);
+  dirLight.position.set(5, 10, 7);
+  scene.add(dirLight);
+
+  // 上部ボタン・パレット（記号パレット含む）と重ならないようY位置を2.1に配置
+  const defaultPositions = [
+    {x: -3.5, y: 2.1},
+    {x: -2.1, y: 2.1},
+    {x: -0.7, y: 2.1},
+    {x: 0.7, y: 2.1},
+    {x: 2.1, y: 2.1},
+    {x: 3.5, y: 2.1}
+  ];
+
+  for (let i = 0; i < 6; i++) {
+    const tile = createTile(i);
+    tile.gx = defaultPositions[i].x;
+    tile.gy = defaultPositions[i].y;
+    tile.position.set(tile.gx, tile.gy, 0);
+    scene.add(tile);
+    tiles.push(tile);
+  }
+
+  setupEvents();
+  setupFloatingWindow();
+  updateCollectionUI();
+  updateVertexVisibility();
+  setMode('move');  checkNetPattern();
+  animate();
+}
+
+function setMode(mode) {
+  activeMode = mode;
+  const modeButtons = {
+    'move': document.getElementById('mode-move'),
+    'center': document.getElementById('mode-center'),
+    'face': document.getElementById('mode-face'),
+    'edge': document.getElementById('mode-edge'),
+    'vertex': document.getElementById('mode-vertex'),
+    'symbol': document.getElementById('mode-symbol')
+  };
+
+  Object.keys(modeButtons).forEach(m => {
+    const btn = modeButtons[m];
+    if (m === mode) {
+      btn.classList.add('bg-blue-600', 'text-white', 'shadow-sm');
+      btn.classList.remove('text-slate-600', 'hover:bg-slate-200/70');
+    } else {
+      btn.classList.remove('bg-blue-600', 'text-white', 'shadow-sm');
+      btn.classList.add('text-slate-600', 'hover:bg-slate-200/70');
+    }
+  });
+
+  document.getElementById('color-palette').style.display = (mode === 'face' || mode === 'edge' || mode === 'vertex') ? 'flex' : 'none';
+  document.getElementById('symbol-palette').style.display = (mode === 'symbol') ? 'flex' : 'none';
+  updateVertexVisibility();
+}
+
+function createTile(index) {
+  const group = new THREE.Group();
+  group.tileIndex = index;
+
+  const frontCanvas = document.createElement('canvas');
+  frontCanvas.width = 256;
+  frontCanvas.height = 256;
+  const frontTexture = new THREE.CanvasTexture(frontCanvas);
+
+  const backCanvas = document.createElement('canvas');
+  backCanvas.width = 256;
+  backCanvas.height = 256;
+  const backTexture = new THREE.CanvasTexture(backCanvas);
+
+  group.frontCanvas = frontCanvas;
+  group.frontTexture = frontTexture;
+  group.backCanvas = backCanvas;
+  group.backTexture = backTexture;
+  group.customFaceColor = null;
+  group.symbol = '';
+
+  updateTileCanvas(group);
+
+  const frontMat = new THREE.MeshStandardMaterial({ map: frontTexture, roughness: 0.3, metalness: 0.0 });
+  const backMat = new THREE.MeshStandardMaterial({ map: backTexture, roughness: 0.3, metalness: 0.0 });
+  const sideMat = new THREE.MeshStandardMaterial({ color: 0x424a4b, roughness: 0.5 });
+
+  const geo = new THREE.BoxGeometry(0.99, 0.99, 0.015);
+  const materials = [sideMat, sideMat, sideMat, sideMat, frontMat, backMat];
+  const mesh = new THREE.Mesh(geo, materials);
+  group.add(mesh);
+  group.mainMesh = mesh;
+  group.frontMat = frontMat;
+  group.backMat = backMat;
+
+  group.edgeMeshes = [];
+  const edgeThickness = 0.013;
+  const edgePositions = [
+    { x: 0, y: 0.495, w: 0.99, h: edgeThickness },  // 上
+    { x: 0, y: -0.495, w: 0.99, h: edgeThickness }, // 下
+    { x: -0.495, y: 0, w: edgeThickness, h: 0.99 }, // 左
+    { x: 0.495, y: 0, w: edgeThickness, h: 0.99 }   // 右
+  ];
+
+  edgePositions.forEach((pos, eIdx) => {
+    const eGeo = new THREE.PlaneGeometry(pos.w, pos.h);
+    const eMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(BORDER_COLOR_HEX), side: THREE.DoubleSide });
+    const eMesh = new THREE.Mesh(eGeo, eMat);
+    eMesh.position.set(pos.x, pos.y, 0.012);
+    eMesh.edgeIndex = eIdx;
+    eMesh.isColored = false;
+    group.add(eMesh);
+    group.edgeMeshes.push(eMesh);
+  });
+
+  group.vertexMeshes = [];
+  const vPositions = [
+    { x: -0.495, y: 0.495 }, { x: 0.495, y: 0.495 },
+    { x: -0.495, y: -0.495 }, { x: 0.495, y: -0.495 }
+  ];
+
+  const vGeo = new THREE.SphereGeometry(0.1, 16, 16);
+
+  vPositions.forEach((pos, vIdx) => {
+    const vMat = new THREE.MeshBasicMaterial({ color: 0x475569 });
+    const vMesh = new THREE.Mesh(vGeo, vMat);
+    vMesh.position.set(pos.x, pos.y, 0.02);
+    vMesh.vertexIndex = vIdx;
+    vMesh.isColored = false;
+    vMesh.visible = false;
+    group.add(vMesh);
+    group.vertexMeshes.push(vMesh);
+  });
+
+  return group;
+}
+
+function updateTileCanvas(group) {
+  const fCtx = group.frontCanvas.getContext('2d');
+  const frontBg = group.customFaceColor || TOP_COLOR_HEX;
+  fCtx.fillStyle = frontBg;
+  fCtx.fillRect(0, 0, 256, 256);
+
+  fCtx.strokeStyle = BORDER_COLOR_HEX;
+  fCtx.lineWidth = 3.8;
+  fCtx.strokeRect(1.9, 1.9, 252.2, 252.2);
+
+  if (group.showCenterMark) {
+    fCtx.strokeStyle = '#3b82f6';
+    fCtx.lineWidth = 8;
+    fCtx.beginPath();
+    fCtx.arc(128, 128, 64, 0, Math.PI * 2);
+    fCtx.stroke();
+  }
+
+  if (group.symbol) {
+    fCtx.fillStyle = '#0f172a';
+    fCtx.font = 'bold 128px sans-serif';
+    fCtx.textAlign = 'center';
+    fCtx.textBaseline = 'middle';
+    fCtx.fillText(group.symbol, 128, 128);
+  }
+  group.frontTexture.needsUpdate = true;
+
+  const bCtx = group.backCanvas.getContext('2d');
+  const backBg = group.customFaceColor || BOTTOM_COLOR_HEX;
+  bCtx.fillStyle = backBg;
+  bCtx.fillRect(0, 0, 256, 256);
+
+  bCtx.strokeStyle = BORDER_COLOR_HEX;
+  bCtx.lineWidth = 3.8;
+  bCtx.strokeRect(1.9, 1.9, 252.2, 252.2);
+
+  if (group.symbol) {
+    bCtx.fillStyle = '#0f172a';
+    bCtx.font = 'bold 128px sans-serif';
+    bCtx.textAlign = 'center';
+    bCtx.textBaseline = 'middle';
+    bCtx.fillText(group.symbol, 128, 128);
+  }
+  group.backTexture.needsUpdate = true;
+}
+
+function updateVertexVisibility() {
+  tiles.forEach(tile => {
+    tile.vertexMeshes.forEach(vMesh => {
+      vMesh.visible = vMesh.isColored;
+    });
+  });
+}
+
+function buildFoldTree() {
+  tiles.forEach(t => {
+    scene.attach(t);
+    t.position.set(t.gx, t.gy, 0);
+    t.rotation.set(0, 0, 0);
+    if (t.pivotGroup) {
+      if (t.pivotGroup.parent) {
+        t.pivotGroup.parent.remove(t.pivotGroup);
+      }
+      t.pivotGroup = null;
+    }
+  });
+
+  let rootIdx = getRootTileIndex();
+
+  const visited = new Set();
+  const queue = [rootIdx];
+  visited.add(rootIdx);
+
+  while (queue.length > 0) {
+    const parentIdx = queue.shift();
+    const pTile = tiles[parentIdx];
+
+    tiles.forEach((cTile, cIdx) => {
+      if (!visited.has(cIdx)) {
+        const dx = cTile.gx - pTile.gx;
+        const dy = cTile.gy - pTile.gy;
+
+        if ((Math.abs(dx) === 1 && dy === 0) || (dx === 0 && Math.abs(dy) === 1)) {
+          visited.add(cIdx);
+
+          let foldAxis = 'y';
+          let foldAngleSign = 1;
+          let pivotX = 0;
+          let pivotY = 0;
+
+          if (dx === 1) {
+            foldAxis = 'y';
+            foldAngleSign = -1;
+            pivotX = 0.495;
+          } else if (dx === -1) {
+            foldAxis = 'y';
+            foldAngleSign = 1;
+            pivotX = -0.495;
+          } else if (dy === 1) {
+            foldAxis = 'x';
+            foldAngleSign = 1;
+            pivotY = 0.495;
+          } else if (dy === -1) {
+            foldAxis = 'x';
+            foldAngleSign = -1;
+            pivotY = -0.495;
+          }
+
+          const pivotGroup = new THREE.Group();
+          pivotGroup.position.set(pivotX, pivotY, 0);
+          pivotGroup.foldAxis = foldAxis;
+          pivotGroup.foldAngleSign = foldAngleSign;
+
+          pTile.add(pivotGroup);
+
+          cTile.position.set(dx === 0 ? 0 : (dx > 0 ? 0.495 : -0.495), dy === 0 ? 0 : (dy > 0 ? 0.495 : -0.495), 0);
+          cTile.rotation.set(0, 0, 0);
+          pivotGroup.add(cTile);
+          cTile.pivotGroup = pivotGroup;
+
+          queue.push(cIdx);
+        }
+      }
+    });
+  }
+
+  const rootTile = tiles[rootIdx];
+  targetControlsTarget.set(rootTile.gx, rootTile.gy, 0);
+}
+
+function checkOverlappingFaces() {
+  if (!isFolded) return;
+
+  // 全オブジェクトの3Dワールド座標を最新状態に更新
+  scene.updateMatrixWorld(true);
+
+  // 各タイルの3D空間上での中心位置を取得
+  const tilePositions = tiles.map(t => {
+    const pos = new THREE.Vector3();
+    t.mainMesh.getWorldPosition(pos);
+    return { tile: t, pos: pos };
+  });
+
+  // 3D空間上で実際の距離が近い（距離 < 0.25）面同士を重なりグループとして抽出（回転時の微誤差も吸収）
+  const visited = new Set();
+  const groups = [];
+
+  for (let i = 0; i < tilePositions.length; i++) {
+    if (visited.has(i)) continue;
+    const group = [tilePositions[i]];
+    visited.add(i);
+
+    for (let j = i + 1; j < tilePositions.length; j++) {
+      if (!visited.has(j)) {
+        if (tilePositions[i].pos.distanceTo(tilePositions[j].pos) < 0.25) {
+          group.push(tilePositions[j]);
+          visited.add(j);
+        }
+      }
+    }
+    if (group.length > 1) {
+      groups.push(group);
+    }
+  }
+
+  // 重なっている面グループごとに、重なった側の面を薄い赤色にし、外側に微小スケールアップして視認可能に
+  groups.forEach(g => {
+    const items = g.map(info => {
+      const t = info.tile;
+      let depth = 0;
+      let curr = t;
+      while (curr.pivotGroup && curr.pivotGroup.parent) {
+        depth++;
+        curr = curr.pivotGroup.parent;
+      }
+
+      let neighborCount = 0;
+      tiles.forEach(other => {
+        if (other !== t) {
+          const dx = Math.abs(t.gx - other.gx);
+          const dy = Math.abs(t.gy - other.gy);
+          if ((dx === 1 && dy === 0) || (dx === 0 && Math.abs(dy) === 1)) {
+            neighborCount++;
+          }
+        }
+      });
+
+      return { tile: t, depth: depth, neighborCount: neighborCount };
+    });
+
+    // 優先順位: 展開図上で接している面が多い順 → ルートに近い（深さが浅い）順
+    items.sort((a, b) => {
+      if (b.neighborCount !== a.neighborCount) {
+        return b.neighborCount - a.neighborCount;
+      }
+      return a.depth - b.depth;
+    });
+
+    // 先頭(items[0])以外の重なった面を薄い赤色(#fca5a5)にし、描画優先度とスケールを上げて手前に露出させる
+    for (let k = 1; k < items.length; k++) {
+      const targetTile = items[k].tile;
+      targetTile.customFaceColor = '#fca5a5';
+      updateTileCanvas(targetTile);
+
+      // Z-fighting（面隠蔽）防止：重なった面を僅かに外側に拡大＆前面描画指定
+      targetTile.mainMesh.scale.set(1.025, 1.025, 1.025);
+      targetTile.mainMesh.renderOrder = 10;
+    }
+  });
+}
+
+function getDistanceToSegment(P, A, B) {
+  const AB = new THREE.Vector3().subVectors(B, A);
+  const AP = new THREE.Vector3().subVectors(P, A);
+  const ab2 = AB.dot(AB);
+  if (ab2 === 0) return AP.length();
+  let t = AP.dot(AB) / ab2;
+  t = Math.max(0, Math.min(1, t));
+  const closest = new THREE.Vector3().addVectors(A, AB.multiplyScalar(t));
+  return P.distanceTo(closest);
+}
+
+function rotateNet90Degrees() {
+  if (!isConnected() || isFolded || isTransformingNet) return;
+
+  // 1. 現在の展開図全体のバウンディングボックス (minX, maxX, minY, maxY) とサイズ (W, H) を算出
+  let minX = Infinity, maxX = -Infinity;
+  let minY = Infinity, maxY = -Infinity;
+  tiles.forEach(t => {
+    minX = Math.min(minX, t.gx);
+    maxX = Math.max(maxX, t.gx);
+    minY = Math.min(minY, t.gy);
+    maxY = Math.max(maxY, t.gy);
+  });
+
+  const W = maxX - minX + 1;
+  const H = maxY - minY + 1;
+
+  // 2. 中心を維持するための新しいバウンディングボックスの左下位置 (minX_new, minY_new)
+  // Math.trunc を使用することで、0を中心とする正負対称な丸めを行い累積漂流を完全防止
+  const minX_new = minX + Math.trunc((W - H) / 2);
+  const minY_new = minY + Math.trunc((H - W) / 2);
+
+  // 3. アニメーション演出用の中心軸
+  const origCx = (minX + maxX) / 2;
+  const origCy = (minY + maxY) / 2;
+
+  // 4. 各タイルの回転後座標をローカル格子座標から直接計算
+  const tileAnimData = tiles.map(t => {
+    const rx = t.gx - minX;
+    const ry = t.gy - minY;
+
+    // 時計回り90度回転のローカル格子座標
+    const rx_new = ry;
+    const ry_new = (W - 1) - rx;
+
+    const endX = minX_new + rx_new;
+    const endY = minY_new + ry_new;
+
+    return {
+      tile: t,
+      startX: t.gx,
+      startY: t.gy,
+      endX: endX,
+      endY: endY
+    };
+  });
+
+  isTransformingNet = true;
+  transformAnimProgress = 0;
+  transformAnimData = {
+    type: 'rotate',
+    cx: origCx,
+    cy: origCy,
+    tiles: tileAnimData
+  };
+}
+
+function mirrorNetHorizontal() {
+  if (!isConnected() || isFolded || isTransformingNet) return;
+
+  let minX = Infinity, maxX = -Infinity;
+  let minY = Infinity, maxY = -Infinity;
+  tiles.forEach(t => {
+    minX = Math.min(minX, t.gx);
+    maxX = Math.max(maxX, t.gx);
+    minY = Math.min(minY, t.gy);
+    maxY = Math.max(maxY, t.gy);
+  });
+
+  const W = maxX - minX + 1;
+  const origCx = (minX + maxX) / 2;
+
+  const tileAnimData = tiles.map(t => {
+    const rx = t.gx - minX;
+    const ry = t.gy - minY;
+
+    const rx_new = (W - 1) - rx;
+
+    const endX = minX + rx_new;
+    const endY = minY + ry;
+
+    return {
+      tile: t,
+      startX: t.gx,
+      startY: t.gy,
+      endX: endX,
+      endY: endY
+    };
+  });
+
+  isTransformingNet = true;
+  transformAnimProgress = 0;
+  transformAnimData = {
+    type: 'mirror',
+    cx: origCx,
+    tiles: tileAnimData
+  };
+}
+
+let isDragging = false;
+let draggedTile = null;
+
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+
+function setupEvents() {
+  const container = document.getElementById('canvas-container');
+
+  window.addEventListener('resize', onWindowResize);
+
+  container.addEventListener('pointerdown', (e) => {
+    if (isFolded || isTransformingNet) return;
+
+    const rect = container.getBoundingClientRect();
+    mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+    raycaster.setFromCamera(mouse, camera);
+
+    if (activeMode === 'vertex') {
+      const planeZ = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+      const clickPos = new THREE.Vector3();
+      raycaster.ray.intersectPlane(planeZ, clickPos);
+
+      let closestDist = 0.35;
+      let targetWorldPos = null;
+
+      tiles.forEach(tile => {
+        tile.vertexMeshes.forEach(vMesh => {
+          const wPos = new THREE.Vector3();
+          vMesh.getWorldPosition(wPos);
+          const dist = clickPos.distanceTo(wPos);
+          if (dist < closestDist) {
+            closestDist = dist;
+            targetWorldPos = wPos.clone();
+          }
+        });
+      });
+
+      if (targetWorldPos) {
+        const defaultVertexColor = new THREE.Color(0x475569);
+        const targetColor = new THREE.Color(selectedColor);
+
+        let alreadyColoredSame = false;
+        tiles.forEach(tile => {
+          tile.vertexMeshes.forEach(vMesh => {
+            const wPos = new THREE.Vector3();
+            vMesh.getWorldPosition(wPos);
+            if (wPos.distanceTo(targetWorldPos) < 0.1) {
+              if (vMesh.isColored && vMesh.material.color.equals(targetColor)) {
+                alreadyColoredSame = true;
+              }
+            }
+          });
+        });
+
+        tiles.forEach(tile => {
+          tile.vertexMeshes.forEach(vMesh => {
+            const wPos = new THREE.Vector3();
+            vMesh.getWorldPosition(wPos);
+            if (wPos.distanceTo(targetWorldPos) < 0.1) {
+              if (alreadyColoredSame) {
+                vMesh.material.color.copy(defaultVertexColor);
+                vMesh.isColored = false;
+              } else {
+                vMesh.material.color.copy(targetColor);
+                vMesh.isColored = true;
+              }
+            }
+          });
+        });
+        updateVertexVisibility();
+      }
+      return;
+    }
+
+    if (activeMode === 'edge') {
+      const planeZ = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+      const clickPos = new THREE.Vector3();
+      raycaster.ray.intersectPlane(planeZ, clickPos);
+
+      const localEndpoints = [
+        [new THREE.Vector3(-0.495, 0.495, 0), new THREE.Vector3(0.495, 0.495, 0)],   // 上
+        [new THREE.Vector3(-0.495, -0.495, 0), new THREE.Vector3(0.495, -0.495, 0)], // 下
+        [new THREE.Vector3(-0.495, -0.495, 0), new THREE.Vector3(-0.495, 0.495, 0)], // 左
+        [new THREE.Vector3(0.495, -0.495, 0), new THREE.Vector3(0.495, 0.495, 0)]    // 右
+      ];
+
+      let minDistance = 0.45;
+      let targetMidPoint = null;
+
+      tiles.forEach(tile => {
+        tile.edgeMeshes.forEach(eMesh => {
+          const eIdx = eMesh.edgeIndex;
+          const ep = localEndpoints[eIdx];
+          const wA = ep[0].clone().applyMatrix4(tile.matrixWorld);
+          const wB = ep[1].clone().applyMatrix4(tile.matrixWorld);
+
+          const dist = getDistanceToSegment(clickPos, wA, wB);
+          if (dist < minDistance) {
+            minDistance = dist;
+            targetMidPoint = new THREE.Vector3().addVectors(wA, wB).multiplyScalar(0.5);
+          }
+        });
+      });
+
+      if (targetMidPoint) {
+        const defaultEdgeColor = new THREE.Color(BORDER_COLOR_HEX);
+        const targetColor = new THREE.Color(selectedColor);
+
+        let alreadyColoredSame = false;
+        tiles.forEach(tile => {
+          tile.edgeMeshes.forEach(eMesh => {
+            const eIdx = eMesh.edgeIndex;
+            const ep = localEndpoints[eIdx];
+            const wA = ep[0].clone().applyMatrix4(tile.matrixWorld);
+            const wB = ep[1].clone().applyMatrix4(tile.matrixWorld);
+            const mid = new THREE.Vector3().addVectors(wA, wB).multiplyScalar(0.5);
+
+            if (mid.distanceTo(targetMidPoint) < 0.2) {
+              if (eMesh.isColored && eMesh.material.color.equals(targetColor)) {
+                alreadyColoredSame = true;
+              }
+            }
+          });
+        });
+
+        tiles.forEach(tile => {
+          tile.edgeMeshes.forEach(eMesh => {
+            const eIdx = eMesh.edgeIndex;
+            const ep = localEndpoints[eIdx];
+            const wA = ep[0].clone().applyMatrix4(tile.matrixWorld);
+            const wB = ep[1].clone().applyMatrix4(tile.matrixWorld);
+            const mid = new THREE.Vector3().addVectors(wA, wB).multiplyScalar(0.5);
+
+            if (mid.distanceTo(targetMidPoint) < 0.2) {
+              if (alreadyColoredSame) {
+                eMesh.material.color.copy(defaultEdgeColor);
+                eMesh.isColored = false;
+                if (eIdx === 0 || eIdx === 1) eMesh.scale.y = 1; else eMesh.scale.x = 1;
+              } else {
+                eMesh.material.color.copy(targetColor);
+                eMesh.isColored = true;
+                if (eIdx === 0 || eIdx === 1) eMesh.scale.y = 6; else eMesh.scale.x = 6;
+              }
+            }
+          });
+        });
+      }
+      return;
+    }
+
+    const intersects = raycaster.intersectObjects(scene.children, true);
+
+    if (intersects.length > 0) {
+      let obj = intersects[0].object;
+      let tileGroup = obj.parent;
+      while (tileGroup && tileGroup.tileIndex === undefined) {
+        tileGroup = tileGroup.parent;
+      }
+
+      if (tileGroup) {
+        if (activeMode === 'move') {
+          isDragging = true;
+          draggedTile = tileGroup;
+          if (draggedTile.customFaceColor === '#fca5a5') {
+            draggedTile.customFaceColor = null;
+            updateTileCanvas(draggedTile);
+          }
+        } else if (activeMode === 'center') {
+          centerTileIndex = tileGroup.tileIndex;
+
+          tiles.forEach(t => {
+            if (t.blinkTimer) clearInterval(t.blinkTimer);
+            t.showCenterMark = false;
+            updateTileCanvas(t);
+          });
+
+          let blinkCount = 0;
+          tileGroup.showCenterMark = true;
+          updateTileCanvas(tileGroup);
+
+          tileGroup.blinkTimer = setInterval(() => {
+            blinkCount++;
+            tileGroup.showCenterMark = !tileGroup.showCenterMark;
+            updateTileCanvas(tileGroup);
+
+            if (blinkCount >= 3) {
+              clearInterval(tileGroup.blinkTimer);
+              tileGroup.showCenterMark = false;
+              updateTileCanvas(tileGroup);
+            }
+          }, 220);
+        } else if (activeMode === 'face') {
+          if (tileGroup.customFaceColor === selectedColor) {
+            tileGroup.customFaceColor = null;
+          } else {
+            tileGroup.customFaceColor = selectedColor;
+          }
+          updateTileCanvas(tileGroup);
+        } else if (activeMode === 'symbol') {
+          if (tileGroup.symbol === selectedSymbol) {
+            tileGroup.symbol = '';
+          } else {
+            tileGroup.symbol = selectedSymbol;
+          }
+          updateTileCanvas(tileGroup);
+        }
+      }
+    }
+  });
+
+  container.addEventListener('pointermove', (e) => {
+    if (isDragging && draggedTile && !isFolded) {
+      const rect = container.getBoundingClientRect();
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+      raycaster.setFromCamera(mouse, camera);
+      const planeZ = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+      const target = new THREE.Vector3();
+      raycaster.ray.intersectPlane(planeZ, target);
+
+      draggedTile.position.set(target.x, target.y, 0.05);
+    }
+  });
+
+  window.addEventListener('pointerup', (e) => {
+    if (isDragging && draggedTile) {
+      const targetX = Math.round(draggedTile.position.x);
+      const targetY = Math.round(draggedTile.position.y);
+      const freeSpot = findNearestFreeSpot(targetX, targetY, draggedTile);
+
+      draggedTile.gx = freeSpot.x;
+      draggedTile.gy = freeSpot.y;
+      draggedTile.position.set(draggedTile.gx, draggedTile.gy, 0);
+
+      // 移動完了時にも薄い赤色をリセット
+      if (draggedTile.customFaceColor === '#fca5a5') {
+        draggedTile.customFaceColor = null;
+        updateTileCanvas(draggedTile);
+      }
+
+      isDragging = false;
+      draggedTile = null;
+
+      checkNetPattern();
+    }
+  });
+
+  // UIモード切替ボタン
+  const modeButtons = {
+    'move': document.getElementById('mode-move'),
+    'center': document.getElementById('mode-center'),
+    'face': document.getElementById('mode-face'),
+    'edge': document.getElementById('mode-edge'),
+    'vertex': document.getElementById('mode-vertex'),
+    'symbol': document.getElementById('mode-symbol')
+  };
+
+  Object.keys(modeButtons).forEach(m => {
+    modeButtons[m].addEventListener('click', () => {
+      if (activeMode === m) {
+        setMode(null);
+      } else {
+        setMode(m);
+      }
+    });
+  });
+
+  // カラーパレット
+  const paletteContainer = document.getElementById('color-palette');
+  paletteContainer.querySelectorAll('.color-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      paletteContainer.querySelectorAll('.color-btn').forEach(b => {
+        b.classList.remove('scale-110', 'ring-2', 'ring-slate-800');
+        b.classList.add('hover:scale-105');
+      });
+      e.target.classList.add('scale-110', 'ring-2', 'ring-slate-800');
+      e.target.classList.remove('hover:scale-105');
+      selectedColor = e.target.dataset.color;
+    });
+  });
+
+  // 記号パレット
+  document.querySelectorAll('.symbol-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      document.querySelectorAll('.symbol-btn').forEach(b => {
+        b.classList.remove('bg-slate-200', 'text-slate-900', 'ring-2', 'ring-slate-400', 'bg-blue-600', 'text-white');
+        if (b.dataset.symbol === "") {
+          b.classList.add('bg-rose-100', 'text-rose-600');
+        } else {
+          b.classList.add('bg-white', 'text-slate-700');
+        }
+      });
+      const target = e.currentTarget;
+      target.classList.remove('bg-white', 'text-slate-700');
+      target.classList.add('bg-slate-200', 'text-slate-900', 'ring-2', 'ring-slate-400');
+      selectedSymbol = target.dataset.symbol;
+    });
+  });
+
+  // アクションボタン
+  document.getElementById('btn-animate').addEventListener('click', toggleFold);
+
+  document.getElementById('btn-direction').addEventListener('click', () => {
+    foldDirection *= -1;
+  });
+
+  document.getElementById('btn-rotate-net').addEventListener('click', () => {
+    rotateNet90Degrees();
+  });
+
+  document.getElementById('btn-mirror-net').addEventListener('click', () => {
+    mirrorNetHorizontal();
+  });
+
+  document.getElementById('btn-transparent').addEventListener('click', () => {
+    isTransparent = !isTransparent;
+    const btn = document.getElementById('btn-transparent');
+    if (isTransparent) {
+      btn.innerText = '透過をもどす';
+      btn.classList.add('bg-blue-100', 'text-blue-700', 'border-blue-300');
+    } else {
+      btn.innerText = '面を透過';
+      btn.classList.remove('bg-blue-100', 'text-blue-700', 'border-blue-300');
+    }
+    tiles.forEach(t => {
+      t.frontMat.transparent = isTransparent;
+      t.frontMat.opacity = isTransparent ? 0.2 : 1.0;
+      t.backMat.transparent = isTransparent;
+      t.backMat.opacity = isTransparent ? 0.2 : 1.0;
+      t.frontMat.needsUpdate = true;
+      t.backMat.needsUpdate = true;
+    });
+  });
+
+  document.getElementById('btn-reset').addEventListener('click', resetLayout);
+  document.getElementById('btn-screenshot').addEventListener('click', takeScreenshot);
+
+  // クリアボタン
+  document.getElementById('btn-bottom-reset').addEventListener('click', () => {
+    centerTileIndex = -1;
+    tiles.forEach(t => {
+      t.customFaceColor = null;
+      t.symbol = '';
+      updateTileCanvas(t);
+      t.edgeMeshes.forEach(eMesh => {
+        eMesh.material.color.set(new THREE.Color(BORDER_COLOR_HEX));
+        eMesh.isColored = false;
+        eMesh.scale.set(1, 1, 1);
+      });
+      t.vertexMeshes.forEach(vMesh => {
+        vMesh.material.color.setHex(0x475569);
+        vMesh.isColored = false;
+      });
+    });
+    updateVertexVisibility();
+  });
+}
+
+function setupFloatingWindow() {
+  const win = document.getElementById('collectionModal');
+  const header = document.getElementById('collectionHeader');
+  const resizeHandle = document.getElementById('collectionResizeHandle');
+  const btnCollection = document.getElementById('btn-collection');
+  const btnClose = document.getElementById('closeModal');
+  const btnReset = document.getElementById('btn-reset-collection');
+  const btnScreenshotCol = document.getElementById('btn-screenshot-collection');
+
+  // 「できた展開図」ボタンを押すとトグル（開く/閉じる）
+  btnCollection.addEventListener('click', () => {
+    win.classList.toggle('open');
+  });
+
+  btnClose.addEventListener('click', () => {
+    win.classList.remove('open');
+  });
+
+  btnReset.addEventListener('click', () => {
+    unlockedNets = [];
+    localStorage.removeItem('cube_unlocked_nets');
+    updateCollectionUI();
+  });
+
+  btnScreenshotCol.addEventListener('click', takeCollectionScreenshot);
+
+  let isWindowDragging = false;
+  let winStartX, winStartY, initialLeft, initialTop;
+
+  header.addEventListener('pointerdown', (e) => {
+    if (e.target === btnClose || e.target === btnReset || e.target.closest('#btn-screenshot-collection')) return;
+    isWindowDragging = true;
+    winStartX = e.clientX;
+    winStartY = e.clientY;
+    const rect = win.getBoundingClientRect();
+    initialLeft = rect.left;
+    initialTop = rect.top;
+    win.style.right = 'auto';
+    win.style.left = `${initialLeft}px`;
+    win.style.top = `${initialTop}px`;
+    header.setPointerCapture(e.pointerId);
+  });
+
+  header.addEventListener('pointermove', (e) => {
+    if (!isWindowDragging) return;
+    const dx = e.clientX - winStartX;
+    const dy = e.clientY - winStartY;
+    win.style.left = `${initialLeft + dx}px`;
+    win.style.top = `${initialTop + dy}px`;
+  });
+
+  header.addEventListener('pointerup', (e) => {
+    isWindowDragging = false;
+    try { header.releasePointerCapture(e.pointerId); } catch(err){}
+  });
+
+  let isResizing = false;
+  let resizeStartX, resizeStartY, startWidth, startHeight;
+
+  resizeHandle.addEventListener('pointerdown', (e) => {
+    isResizing = true;
+    resizeStartX = e.clientX;
+    resizeStartY = e.clientY;
+    startWidth = win.offsetWidth;
+    startHeight = win.offsetHeight;
+    resizeHandle.setPointerCapture(e.pointerId);
+    e.stopPropagation();
+  });
+
+  resizeHandle.addEventListener('pointermove', (e) => {
+    if (!isResizing) return;
+    const dw = e.clientX - resizeStartX;
+    const dh = e.clientY - resizeStartY;
+    const newW = Math.max(260, startWidth + dw);
+    const newH = Math.max(220, startHeight + dh);
+    win.style.width = `${newW}px`;
+    win.style.height = `${newH}px`;
+  });
+
+  resizeHandle.addEventListener('pointerup', (e) => {
+    isResizing = false;
+    try { resizeHandle.releasePointerCapture(e.pointerId); } catch(err){}
+  });
+}
+
+function findNearestFreeSpot(targetX, targetY, excludeTile) {
+  let x = targetX, y = targetY;
+  const isOccupied = (cx, cy) => tiles.some(t => t !== excludeTile && t.gx === cx && t.gy === cy);
+  
+  if (!isOccupied(x, y)) return { x, y };
+
+  for (let r = 1; r < 10; r++) {
+    for (let dx = -r; dx <= r; dx++) {
+      for (let dy = -r; dy <= r; dy++) {
+        if (Math.abs(dx) === r || Math.abs(dy) === r) {
+          if (!isOccupied(x + dx, y + dy)) {
+            return { x: x + dx, y: y + dy };
+          }
+        }
+      }
+    }
+  }
+  return { x, y };
+}
+
+function onWindowResize() {
+  const container = document.getElementById('canvas-container');
+  camera.aspect = container.clientWidth / container.clientHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(container.clientWidth, container.clientHeight);
+}
+
+function toggleFold() {
+  if (isAnimating || isTransformingNet || !isConnected()) return;
+
+  if (!isFolded) {
+    // 新しく組み立てる際、前回の自動重なりハイライト(#fca5a5)をクリア
+    tiles.forEach(t => {
+      if (t.customFaceColor === '#fca5a5') {
+        t.customFaceColor = null;
+        updateTileCanvas(t);
+      }
+    });
+
+    buildFoldTree();
+    isFolded = true;
+    
+    let rootIdx = getRootTileIndex();
+    const rootTile = tiles[rootIdx];
+    
+    targetCameraPos.set(rootTile.gx + 3.8, rootTile.gy + 3.2, 5.5);
+    targetControlsTarget.set(rootTile.gx, rootTile.gy, 0);
+    controls.enableRotate = true;
+
+    document.getElementById('text-animate').innerText = '展開図にもどす';
+
+    // 立方体に組み立てた時は回転・反転ボタンを無効化
+    document.getElementById('btn-rotate-net').disabled = true;
+    document.getElementById('btn-rotate-net').className = "btn-action bg-slate-300 text-slate-500 cursor-not-allowed font-bold p-3 rounded-2xl shadow-lg border-2 border-white/80 flex items-center justify-center";
+    document.getElementById('btn-mirror-net').disabled = true;
+    document.getElementById('btn-mirror-net').className = "btn-action bg-slate-300 text-slate-500 cursor-not-allowed font-bold p-3 rounded-2xl shadow-lg border-2 border-white/80 flex items-center justify-center";
+  } else {
+    // 展開図に戻すときは重なる面の薄い赤色(#fca5a5)を保持したまま開く
+    isFolded = false;
+    targetCameraPos.copy(FRONT_CAMERA_POS);
+    targetControlsTarget.set(0, -0.1, 0);
+    controls.enableRotate = false;
+
+    // スケールと描画順をリセット
+    tiles.forEach(t => {
+      t.mainMesh.scale.set(1, 1, 1);
+      t.mainMesh.renderOrder = 0;
+    });
+
+    document.getElementById('text-animate').innerText = '組み立てる';
+
+    // 展開図に戻したら回転・反転ボタンを再有効化
+    if (isConnected()) {
+      const btnRotate = document.getElementById('btn-rotate-net');
+      btnRotate.disabled = false;
+      btnRotate.className = "btn-action bg-white hover:bg-slate-100 text-slate-800 font-bold p-3 rounded-2xl shadow-lg border-2 border-slate-200/80 flex items-center justify-center cursor-pointer";
+      
+      const btnMirror = document.getElementById('btn-mirror-net');
+      btnMirror.disabled = false;
+      btnMirror.className = "btn-action bg-white hover:bg-slate-100 text-slate-800 font-bold p-3 rounded-2xl shadow-lg border-2 border-slate-200/80 flex items-center justify-center cursor-pointer";
+    }
+  }
+  isAnimating = true;
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+
+  if (isTransformingNet && transformAnimData) {
+    transformAnimProgress += 0.05;
+    if (transformAnimProgress >= 1) {
+      transformAnimProgress = 1;
+      isTransformingNet = false;
+    }
+
+    const easeProgress = transformAnimProgress < 0.5 
+      ? 2 * transformAnimProgress * transformAnimProgress 
+      : 1 - Math.pow(-2 * transformAnimProgress + 2, 2) / 2;
+
+    if (transformAnimData.type === 'rotate') {
+      const angle = - (Math.PI / 2) * easeProgress; // 時計回り（右回転）
+      const cosA = Math.cos(angle);
+      const sinA = Math.sin(angle);
+      const cx = transformAnimData.cx;
+      const cy = transformAnimData.cy;
+
+      transformAnimData.tiles.forEach(item => {
+        const t = item.tile;
+        if (transformAnimProgress === 1) {
+          t.gx = item.endX;
+          t.gy = item.endY;
+          t.position.set(t.gx, t.gy, 0);
+          t.rotation.set(0, 0, 0);
+        } else {
+          // 固定された中央座標 (cx, cy) を軸とするスムーズな円運動
+          const curX = cx + (item.startX - cx) * cosA - (item.startY - cy) * sinA;
+          const curY = cy + (item.startX - cx) * sinA + (item.startY - cy) * cosA;
+
+          t.position.set(curX, curY, 0);
+          t.rotation.z = angle;
+        }
+      });
+    } else if (transformAnimData.type === 'mirror') {
+      const rotY = Math.PI * easeProgress;
+      const cx = transformAnimData.cx;
+
+      transformAnimData.tiles.forEach(item => {
+        const t = item.tile;
+        if (transformAnimProgress === 1) {
+          t.gx = item.endX;
+          t.gy = item.endY;
+          t.position.set(t.gx, t.gy, 0);
+          t.rotation.set(0, 0, 0);
+        } else {
+          // 展開図全体が中央の縦軸cxを中心に3Dで手前に反転する位置
+          const dx = item.startX - cx;
+          const curX = cx + dx * Math.cos(rotY);
+          const curZ = dx * Math.sin(rotY);
+
+          t.position.set(curX, t.startY, curZ);
+          t.rotation.y = rotY;
+        }
+      });
+    }
+
+    if (!isTransformingNet) {
+      checkNetPattern();
+    }
+  }
+
+  // 組み立て・展開図アニメーション処理
+  if (isAnimating) {
+    camera.position.lerp(targetCameraPos, 0.08);
+    controls.target.lerp(targetControlsTarget, 0.08);
+
+    const speed = 0.02 / 1.5;
+    if (isFolded) {
+      foldProgress = Math.min(1, foldProgress + speed);
+    } else {
+      foldProgress = Math.max(0, foldProgress - speed);
+    }
+
+    tiles.forEach(tile => {
+      if (tile.pivotGroup) {
+        const targetAngle = (Math.PI / 2) * foldProgress * foldDirection * tile.pivotGroup.foldAngleSign;
+        if (tile.pivotGroup.foldAxis === 'y') {
+          tile.pivotGroup.rotation.y = targetAngle;
+        } else {
+          tile.pivotGroup.rotation.x = targetAngle;
+        }
+      }
+    });
+
+    if (foldProgress === 1) {
+      isAnimating = false;
+      // 折りたたみ完了時に回転角度を厳密な直角値に固定
+      tiles.forEach(tile => {
+        if (tile.pivotGroup) {
+          const targetAngle = (Math.PI / 2) * foldDirection * tile.pivotGroup.foldAngleSign;
+          if (tile.pivotGroup.foldAxis === 'y') {
+            tile.pivotGroup.rotation.y = targetAngle;
+          } else {
+            tile.pivotGroup.rotation.x = targetAngle;
+          }
+        }
+      });
+      scene.updateMatrixWorld(true);
+      checkOverlappingFaces();
+
+      const matchedIndex = getMatchedNetIndex();
+      if (matchedIndex !== -1 && !unlockedNets.includes(matchedIndex)) {
+        unlockedNets.push(matchedIndex);
+        localStorage.setItem('cube_unlocked_nets', JSON.stringify(unlockedNets));
+        updateCollectionUI();
+      }
+    } else if (foldProgress === 0) {
+      isAnimating = false;
+      tiles.forEach(t => {
+        scene.attach(t);
+        t.position.set(t.gx, t.gy, 0);
+        t.rotation.set(0, 0, 0);
+      });
+    }
+  }
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+function isConnected() {
+  const visited = new Set();
+  const queue = [0];
+  visited.add(0);
+
+  while (queue.length > 0) {
+    const curr = queue.shift();
+    const t1 = tiles[curr];
+    tiles.forEach((t2, idx) => {
+      if (!visited.has(idx)) {
+        const dx = Math.abs(t1.gx - t2.gx);
+        const dy = Math.abs(t1.gy - t2.gy);
+        if ((dx === 1 && dy === 0) || (dx === 0 && Math.abs(dy) === 1)) {
+          visited.add(idx);
+          queue.push(idx);
+        }
+      }
+    });
+  }
+  return visited.size === 6;
+}
+
+function getGridMatrix() {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  tiles.forEach(t => {
+    minX = Math.min(minX, t.gx); maxX = Math.max(maxX, t.gx);
+    minY = Math.min(minY, t.gy); maxY = Math.max(maxY, t.gy);
+  });
+
+  const rows = maxY - minY + 1;
+  const cols = maxX - minX + 1;
+  const matrix = Array.from({length: rows}, () => Array(cols).fill(0));
+  tiles.forEach(t => {
+    matrix[t.gy - minY][t.gx - minX] = 1;
+  });
+  return matrix;
+}
+
+function rotateMatrix(m) {
+  const r = m.length, c = m[0].length;
+  const res = Array.from({length: c}, () => Array(r).fill(0));
+  for (let i = 0; i < r; i++) {
+    for (let j = 0; j < c; j++) res[j][r - 1 - i] = m[i][j];
+  }
+  return res;
+}
+
+function flipMatrix(m) { return m.map(row => [...row].reverse()); }
+
+function matricesEqual(m1, m2) {
+  if (m1.length !== m2.length || m1[0].length !== m2[0].length) return false;
+  for (let i = 0; i < m1.length; i++) {
+    for (let j = 0; j < m1[0].length; j++) if (m1[i][j] !== m2[i][j]) return false;
+  }
+  return true;
+}
+
+function getMatchedNetIndex() {
+  if (!isConnected()) return -1;
+
+  const current = getGridMatrix();
+
+  for (let idx = 0; idx < STANDARD_NETS.length; idx++) {
+    let target = STANDARD_NETS[idx];
+    let curr = current;
+    for (let flip = 0; flip < 2; flip++) {
+      for (let rot = 0; rot < 4; rot++) {
+        if (matricesEqual(curr, target)) { return idx; }
+        curr = rotateMatrix(curr);
+      }
+      curr = flipMatrix(current);
+    }
+  }
+  return -1;
+}
+
+function checkNetPattern() {
+  const connected = isConnected();
+  const btnAnimate = document.getElementById('btn-animate');
+  const btnRotate = document.getElementById('btn-rotate-net');
+  const btnMirror = document.getElementById('btn-mirror-net');
+
+  if (connected) {
+    btnAnimate.disabled = false;
+    btnAnimate.className = "btn-action bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white font-bold text-base px-7 py-3 rounded-2xl shadow-lg border-2 border-white/80 flex items-center justify-center min-w-[170px] cursor-pointer";
+    
+    if (!isFolded) {
+      btnRotate.disabled = false;
+      btnRotate.className = "btn-action bg-white hover:bg-slate-100 text-slate-800 font-bold p-3 rounded-2xl shadow-lg border-2 border-slate-200/80 flex items-center justify-center cursor-pointer";
+      
+      btnMirror.disabled = false;
+      btnMirror.className = "btn-action bg-white hover:bg-slate-100 text-slate-800 font-bold p-3 rounded-2xl shadow-lg border-2 border-slate-200/80 flex items-center justify-center cursor-pointer";
+    }
+  } else {
+    // 6つの正方形が合わさるまではすべてのボタンをグレーアウト（押せない状態）にする
+    btnAnimate.disabled = true;
+    btnAnimate.className = "btn-action bg-slate-300 text-slate-500 font-bold text-base px-7 py-3 rounded-2xl shadow-lg border-2 border-white/80 flex items-center justify-center min-w-[170px] cursor-not-allowed";
+    
+    btnRotate.disabled = true;
+    btnRotate.className = "btn-action bg-slate-300 text-slate-500 font-bold p-3 rounded-2xl shadow-lg border-2 border-white/80 flex items-center justify-center cursor-not-allowed";
+
+    btnMirror.disabled = true;
+    btnMirror.className = "btn-action bg-slate-300 text-slate-500 font-bold p-3 rounded-2xl shadow-lg border-2 border-white/80 flex items-center justify-center cursor-not-allowed";
+  }
+}
+
+function updateCollectionUI() {
+  const grid = document.getElementById('collectionGrid');
+  grid.innerHTML = '';
+
+  STANDARD_NETS.forEach((net, idx) => {
+    const isUnlocked = unlockedNets.includes(idx);
+    const card = document.createElement('div');
+    card.className = `relative flex flex-col items-center justify-center p-1 rounded-xl border transition-all ${
+      isUnlocked ? 'bg-blue-50/80 border-blue-200 shadow-sm' : 'bg-slate-100 border-slate-200'
+    }`;
+
+    const cvs = document.createElement('canvas');
+    cvs.width = 80;
+    cvs.height = 60;
+    drawMiniNet(cvs, net);
+
+    card.appendChild(cvs);
+
+    if (!isUnlocked) {
+      const mask = document.createElement('div');
+      mask.className = 'absolute inset-0 bg-slate-200 rounded-xl flex flex-col items-center justify-center gap-0.5 z-10 transition-opacity duration-300';
+      mask.innerHTML = '<span class="text-base font-black text-slate-400">?</span>';
+
+      let hintTimer = null;
+
+      // 長押し1秒（1000ms）で透けてヒントが見えるように変更
+      const startHint = () => {
+        hintTimer = setTimeout(() => {
+          mask.classList.add('opacity-20');
+        }, 1000);
+      };
+
+      const stopHint = () => {
+        if (hintTimer) {
+          clearTimeout(hintTimer);
+          hintTimer = null;
+        }
+        mask.classList.remove('opacity-20');
+      };
+
+      mask.addEventListener('pointerdown', startHint);
+      mask.addEventListener('pointerup', stopHint);
+      mask.addEventListener('pointerleave', stopHint);
+
+      card.appendChild(mask);
+    }
+
+    grid.appendChild(card);
+  });
+
+  <!-- 11種類すべてコンプリートした場合、右下の空きスペース（12番目の枠）に外枠なしの限界サイズ花丸を表示 -->
+  if (unlockedNets.length === STANDARD_NETS.length) {
+    const completeCard = document.createElement('div');
+    completeCard.className = 'relative flex items-center justify-center p-0 rounded-xl bg-transparent border-0 shadow-none text-center overflow-hidden w-full h-[68px] cursor-pointer select-none';
+
+    completeCard.innerHTML = `
+      <div class="w-full h-full flex items-center justify-center bg-transparent border-0 p-0 cursor-pointer" title="タップして花丸アニメーションを再再生">
+        <svg class="flower-svg w-full h-full max-w-full max-h-full p-0.5" viewBox="0 0 100 100">
+          <!-- 外側の6弁花びら -->
+          <path fill="none" stroke="#ee4950" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"
+            d="M 76.5 50 A 13.5 13.5 0 0 1 63.25 72.95 A 13.5 13.5 0 0 1 36.75 72.95 A 13.5 13.5 0 0 1 23.5 50 A 13.5 13.5 0 0 1 36.75 27.05 A 13.5 13.5 0 0 1 63.25 27.05 A 13.5 13.5 0 0 1 76.5 50" />
+          <!-- 内側のゆったりぐるぐる（始まりと終わりを180°反対に変更） -->
+          <path fill="none" stroke="#ee4950" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"
+            d="M 50 55 A 6 6 0 0 0 50 43 A 12 12 0 0 0 50 67 A 18 18 0 0 0 50 31 A 22 22 0 0 0 50 75 A 25 25 0 0 0 43.5 73.5" />
+        </svg>
+      </div>
+    `;
+
+    // 花丸のポップイン＋回転・点滅アニメーション
+    const playFlowerAnim = () => {
+      if (completeCard.isFlowerAnimating) return;
+      completeCard.isFlowerAnimating = true;
+
+      const svgEl = completeCard.querySelector('.flower-svg');
+      if (!svgEl) return;
+
+      // 1. アニメーション前の2回点滅処理 (間隔0.3秒 = 300ms)
+      let blinkStep = 0;
+      svgEl.style.transform = 'scale(1) rotate(0deg)';
+      svgEl.style.opacity = '0'; // 初期状態は消灯
+
+      const blinkTimer = setInterval(() => {
+        blinkStep++;
+        // 奇数ステップで点灯(1)、偶数ステップで消灯(0)
+        svgEl.style.opacity = (blinkStep % 2 === 1) ? '1' : '0';
+
+        // 2回の点滅（点灯・消灯の計4ステップ）が完了したらメインアニメーションを開始
+        if (blinkStep >= 4) {
+          clearInterval(blinkTimer);
+          svgEl.style.opacity = '1';
+          startPopRotateAnim();
+        }
+      }, 300);
+
+      // 2. メインのポップイン＆回転アニメーション
+      const startPopRotateAnim = () => {
+        let step = 0;
+        const totalSteps = 24;
+        const intervalTime = 35;
+
+        const timer = setInterval(() => {
+          step++;
+          const progress = step / totalSteps;
+          
+          // 360度回転
+          const angle = progress * 360;
+          
+          // ポップイン（拡大縮小）効果
+          let scale = 1;
+          if (progress < 0.3) {
+            scale = (progress / 0.3) * 1.2;
+          } else if (progress < 0.7) {
+            scale = 1.2 - ((progress - 0.3) / 0.4) * 0.25;
+          } else {
+            scale = 0.95 + ((progress - 0.7) / 0.3) * 0.05;
+          }
+
+          svgEl.style.transform = `scale(${scale}) rotate(${angle}deg)`;
+
+          if (step >= totalSteps) {
+            clearInterval(timer);
+            completeCard.isFlowerAnimating = false;
+            // 完了後は静止状態に戻す
+            svgEl.style.transform = 'scale(1) rotate(0deg)';
+            svgEl.style.opacity = '1';
+          }
+        }, intervalTime);
+      };
+    };
+
+    // 初回表示時のアニメーション開始
+    setTimeout(playFlowerAnim, 150);
+
+    // タップ・クリックでアニメーションを何度でも再再生
+    const handleTap = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      playFlowerAnim();
+    };
+
+    completeCard.addEventListener('pointerdown', handleTap);
+
+    grid.appendChild(completeCard);
+  }
+}
+
+function drawMiniNet(canvas, matrix) {
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const rows = matrix.length;
+  const cols = matrix[0].length;
+
+  const tileSize = Math.min((canvas.width - 12) / cols, (canvas.height - 12) / rows);
+  const offsetX = (canvas.width - cols * tileSize) / 2;
+  const offsetY = (canvas.height - rows * tileSize) / 2;
+
+  ctx.fillStyle = BOTTOM_COLOR_HEX;
+  ctx.strokeStyle = '#64748b';
+  ctx.lineWidth = 1.2;
+
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (matrix[r][c] === 1) {
+        const x = offsetX + c * tileSize;
+        const y = offsetY + r * tileSize;
+        ctx.fillRect(x, y, tileSize, tileSize);
+        ctx.strokeRect(x, y, tileSize, tileSize);
+      }
+    }
+  }
+}
+
+function resetLayout() {
+  if (isFolded) {
+    toggleFold();
+  }
+  
+  const defaultPositions = [
+    {x: -3.5, y: 2.1},
+    {x: -2.1, y: 2.1},
+    {x: -0.7, y: 2.1},
+    {x: 0.7, y: 2.1},
+    {x: 2.1, y: 2.1},
+    {x: 3.5, y: 2.1}
+  ];
+
+  tiles.forEach((tile, i) => {
+    tile.gx = defaultPositions[i].x;
+    tile.gy = defaultPositions[i].y;
+    tile.position.set(tile.gx, tile.gy, 0);
+    tile.rotation.set(0, 0, 0);
+    tile.mainMesh.scale.set(1, 1, 1);
+    tile.mainMesh.renderOrder = 0;
+  });
+
+  centerTileIndex = -1;
+  checkNetPattern();
+}
+
+function takeScreenshot() {
+  screenshotCount++;
+  const numStr = getParenthesizedNumber(screenshotCount);
+
+  scene.updateMatrixWorld(true);
+  
+  const width = renderer.domElement.width;
+  const height = renderer.domElement.height;
+  
+  let minX = Infinity, minY = Infinity;
+  let maxX = -Infinity, maxY = -Infinity;
+
+  const localCorners = [
+    new THREE.Vector3(-0.5, 0.5, 0),
+    new THREE.Vector3(0.5, 0.5, 0),
+    new THREE.Vector3(-0.5, -0.5, 0),
+    new THREE.Vector3(0.5, -0.5, 0)
+  ];
+
+  // 6枚の全タイルの各頂点の画面座標（ピクセル）を算出
+  tiles.forEach(tile => {
+    localCorners.forEach(corner => {
+      const wPos = corner.clone().applyMatrix4(tile.matrixWorld);
+      wPos.project(camera);
+      const screenX = (wPos.x + 1) * width / 2;
+      const screenY = (-wPos.y + 1) * height / 2;
+
+      minX = Math.min(minX, screenX);
+      maxX = Math.max(maxX, screenX);
+      minY = Math.min(minY, screenY);
+      maxY = Math.max(maxY, screenY);
+    });
+  });
+
+  // 周囲に余白（パディング）を追加
+  const padding = 35;
+  minX = Math.max(0, Math.floor(minX - padding));
+  minY = Math.max(0, Math.floor(minY - padding));
+  maxX = Math.min(width, Math.ceil(maxX + padding));
+  maxY = Math.min(height, Math.ceil(maxY + padding));
+
+  const cropW = Math.max(1, maxX - minX);
+  const cropH = Math.max(1, maxY - minY);
+
+  const cropCanvas = document.createElement('canvas');
+  cropCanvas.width = cropW;
+  cropCanvas.height = cropH;
+  const ctx = cropCanvas.getContext('2d');
+
+  // 背景白
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, cropW, cropH);
+
+  // 展開図の存在する矩形領域のみ切り出して描画
+  ctx.drawImage(renderer.domElement, minX, minY, cropW, cropH, 0, 0, cropW, cropH);
+
+  const dataURL = cropCanvas.toDataURL('image/png');
+  const link = document.createElement('a');
+  link.download = `立方体の展開図${numStr}.png`;
+  link.href = dataURL;
+  link.click();
+}
+
+function takeCollectionScreenshot() {
+  const canvas = document.createElement('canvas');
+  const width = 720;
+  const height = 860;
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+
+  // 背景ダイアログ（角丸カード）
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  if (ctx.roundRect) {
+    ctx.roundRect(10, 10, width - 20, height - 20, 24);
+  } else {
+    ctx.rect(10, 10, width - 20, height - 20);
+  }
+  ctx.fill();
+  ctx.strokeStyle = '#cbd5e1';
+  ctx.lineWidth = 4;
+  ctx.stroke();
+
+  // ヘッダー背景
+  ctx.fillStyle = '#f8fafc';
+  ctx.beginPath();
+  if (ctx.roundRect) {
+    ctx.roundRect(12, 12, width - 24, 70, [20, 20, 0, 0]);
+  } else {
+    ctx.rect(12, 12, width - 24, 70);
+  }
+  ctx.fill();
+
+  ctx.strokeStyle = '#e2e8f0';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(12, 82);
+  ctx.lineTo(width - 12, 82);
+  ctx.stroke();
+
+  // ヘッダータイトル
+  ctx.fillStyle = '#1e293b';
+  ctx.font = 'bold 26px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(`できた展開図 (${unlockedNets.length} / ${STANDARD_NETS.length})`, 36, 47);
+
+  // 3列×4行 グリッド描画
+  const cols = 3;
+  const startX = 36;
+  const startY = 104;
+  const cardW = 204;
+  const cardH = 160;
+  const gapX = 18;
+  const gapY = 18;
+
+  STANDARD_NETS.forEach((net, idx) => {
+    const col = idx % cols;
+    const row = Math.floor(idx / cols);
+    const x = startX + col * (cardW + gapX);
+    const y = startY + row * (cardH + gapY);
+
+    const isUnlocked = unlockedNets.includes(idx);
+
+    ctx.fillStyle = isUnlocked ? '#eff6ff' : '#f1f5f9';
+    ctx.beginPath();
+    if (ctx.roundRect) {
+      ctx.roundRect(x, y, cardW, cardH, 16);
+    } else {
+      ctx.rect(x, y, cardW, cardH);
+    }
+    ctx.fill();
+
+    ctx.strokeStyle = isUnlocked ? '#bfdbfe' : '#e2e8f0';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    if (isUnlocked) {
+      // ミニ展開図描画
+      const rows = net.length;
+      const netCols = net[0].length;
+      const tileSize = Math.min((cardW - 32) / netCols, (cardH - 32) / rows);
+      const offsetX = x + (cardW - netCols * tileSize) / 2;
+      const offsetY = y + (cardH - rows * tileSize) / 2;
+
+      ctx.fillStyle = BOTTOM_COLOR_HEX;
+      ctx.strokeStyle = '#64748b';
+      ctx.lineWidth = 2;
+
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < netCols; c++) {
+          if (net[r][c] === 1) {
+            const tx = offsetX + c * tileSize;
+            const ty = offsetY + r * tileSize;
+            ctx.fillRect(tx, ty, tileSize, tileSize);
+            ctx.strokeRect(tx, ty, tileSize, tileSize);
+          }
+        }
+      }
+    } else {
+      // 未解放ハテナマーク
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = 'bold 42px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('?', x + cardW / 2, y + cardH / 2);
+    }
+  });
+
+  // コンプリート（12番目のマス）
+  if (unlockedNets.length === STANDARD_NETS.length) {
+    const idx = 11;
+    const col = idx % cols;
+    const row = Math.floor(idx / cols);
+    const x = startX + col * (cardW + gapX);
+    const y = startY + row * (cardH + gapY);
+
+    const cx = x + cardW / 2;
+    const cy = y + cardH / 2;
+
+    const flowerPath = new Path2D("M 76.5 50 A 13.5 13.5 0 0 1 63.25 72.95 A 13.5 13.5 0 0 1 36.75 72.95 A 13.5 13.5 0 0 1 23.5 50 A 13.5 13.5 0 0 1 36.75 27.05 A 13.5 13.5 0 0 1 63.25 27.05 A 13.5 13.5 0 0 1 76.5 50");
+    const spiralPath = new Path2D("M 50 55 A 6 6 0 0 0 50 43 A 12 12 0 0 0 50 67 A 18 18 0 0 0 50 31 A 22 22 0 0 0 50 75 A 25 25 0 0 0 43.5 73.5");
+
+    ctx.save();
+    const scale = 1.35;
+    ctx.translate(cx - 50 * scale, cy - 50 * scale);
+    ctx.scale(scale, scale);
+
+    ctx.strokeStyle = '#ee4950';
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    ctx.lineWidth = 3.8;
+    ctx.stroke(flowerPath);
+
+    ctx.lineWidth = 3.5;
+    ctx.stroke(spiralPath);
+    ctx.restore();
+  }
+
+  const dataURL = canvas.toDataURL('image/png');
+  const link = document.createElement('a');
+  link.download = 'できた展開図.png';
+  link.href = dataURL;
+  link.click();
+}
+
+window.onload = init;
+</script>
+</body>
+</html>
